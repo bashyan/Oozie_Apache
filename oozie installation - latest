@@ -1,0 +1,142 @@
+Apache Oozie Configuration with Hadoop 2.6.0
+Step 1: Download Oozie 4.1 from the Apache URL and save the tarball to any directory
+
+Goto /home/hduser
+
+cd ~
+
+wget http://archive.apache.org/dist/oozie/4.1.0/oozie-4.1.0.tar.gz 
+tar -zxf oozie-4.1.0.tar.gz
+mv oozie-4.1.0 oozie
+
+sudo mv oozie /usr/local
+
+Step 2: Assuming you have maven installed, if not, refer to the installation instructions here
+
+cd ~
+wget http://archive.apache.org/dist/maven/maven-3/3.1.1/binaries/apache-maven-3.1.1-bin.tar.gz
+
+tar -xvf apache-maven-3.1.1-bin.tar.gz
+mv apache-maven-3.1.1 maven
+sudo mv maven /usr/local
+
+nano ~/.bashrc
+export M2_HOME=/usr/local/maven
+export PATH=$PATH:$M2_HOME/bin
+source ~/.bashrc
+
+Restart the terminal. Test it.
+
+mvn --version
+Apache Maven 3.1.1 (0728685237757ffbf44136acec0402957f723d9a;
+2013-09-17 11:22:22-0400)
+Maven home: /usr/local/maven
+Java version: 1.7.0_51, vendor: Oracle Corporation
+Java home: /usr/lib/jvm/jdk1.7.0_51/jre
+Default locale: en_US, platform encoding: UTF-8
+OS name: "linux", version: "2.6.32-21-generic", arch: "i386", family: "unix"OS name: "mac os x", version: "10.9", arch: "x86_64", family: "mac"
+
+
+Step 3: Update the pom.xml to change the default hadoop version to 2.3.0. The reason we’re not changing it to hadoop version 2.6.0 here is because 2.3.0-oozie-4.1.0.jar is the latest available jar file. Luckily it works with higher versions in 2.x series
+cd /usr/local/oozie
+nano pom.xml
+--Search for
+<hadoop.version>1.1.1</hadoop.version>
+--Replace it with
+<hadoop.version>2.3.0</hadoop.version>
+
+Step 4 Configure Hadoop, etc/hadoop/core-site.xml for Oozie proxy process. Replace $USER with the user which will run oozie process. For Mac OS, you may have to provide group name explicitly
+
+<property>
+<name>hadoop.proxyuser.hduser.hosts</name>
+<value>*</value>
+</property>
+<property>
+<name>hadoop.proxyuser.hduser.groups</name>
+<value>*</value>
+</property>
+
+
+
+Step 5: Build Oozie executable
+cd /usr/local/oozie
+mvn clean package assembly:single -P hadoop-2 -DskipTests
+
+
+Step 6: The executable will be generated in the target sub directory under distro dir. Move it to a new folder under /usr/local/
+
+mv /usr/local/oozie /usr/local/oozied
+
+cd /usr/local/oozie/distro/target
+
+tar -zxf oozie-4.1.0-distro.tar.gz
+
+sudo mv oozie-4.1.0 /usr/local/oozie
+
+
+Step 7: Copy the hadoop lib files and Download ext-2.2.zip, this file is no longer available on the extjs.com, that’s why downloading from cloudera archive
+cd /usr/local/oozie
+mkdir libext
+cp -R /usr/local/oozied/hadooplibs/hadoop-2/target/hadooplibs/hadooplib-2.3.0.oozie-4.1.0/* libext
+cd libext
+
+if curl is not installed then
+sudo apt-get install curl
+curl -O http://archive.cloudera.com/gplextras/misc/ext-2.2.zip
+
+Step 8 : Build the war file for oozie web console
+cd ..
+./bin/oozie-setup.sh prepare-war
+
+Step 9: Create sharelib directory under user home dir on HDFS. Please check for the Namenode port in your configuration, I’m using 54310. This command will create ~/share/lib/ directory in your HDFS home and will copy the required lib file
+
+./bin/oozie-setup.sh sharelib create -fs hdfs://localhost:54310/
+
+Step 10: Setup oozie metadata repository. By default oozie uses a derby database as the metadata store, however, I’ve chosen local MySQL instance to get the real feel of enterprise installation. To install MySQL, please refer here
+For Derby metastore:
+
+./bin/ooziedb.sh create -sqlfile oozie.sql -run
+
+For MySQL metastore: login to MySQL and run create the database and schema for repository
+mysql>CREATE DATABASE OOZIEDB;
+mysql>CREATE USER "OOZIE" IDENTIFIED BY "PASSWORD";
+mysql>GRANT ALL PRIVILEGES ON *.* TO OOZIE;
+mysql>FLUSH PRIVILEGES;
+Ensure that mysql driver is placed in libext folder, change the following properties under con/oozie-site.xml
+oozie.service.JPAService.jdbc.driver, set it to com.mysql.jdbc.Driver
+oozie.service.JPAService.jdbc.url set it to jdbc:mysql://OOZIEDB
+oozie.service.JPAService.jdbc.username, set it to mysql user name
+oozie.service.JPAService.jdbc.password for password
+
+Run the below command to create metadata tables in the repository:
+
+./bin/ooziedb.sh create db -run
+
+
+
+STEP 11 : make changes in ~/.bashrc
+
+export OOZIE_VERSION=4.1.0
+export OOZIE_HOME="/usr/local/oozie/oozie-4.1.0"
+export PATH="$OOZIE_HOME/bin:$PATH"
+export JRE_HOME=$JAVA_HOME
+
+source ~/.bashrc
+
+edit /usr/local/oozie/oozie-4.1.0/conf/oozie-site.xml 
+
+<property>        
+      <name>oozie.service.HadoopAccessorService.hadoop.configurations</name> 
+      <value>*=/usr/local/hadoop/etc/hadoop/</value>
+</property>
+
+Step 12:All set, now let’s start Oozie. Once started, the web console should be up at http://localhost:11000/oozie/
+
+cd $OOZIE_HOME/bin
+
+./oozied.sh start
+
+./oozie admin -oozie http://localhost:11000/oozie -status
+
+System mode: NORMAL
+
